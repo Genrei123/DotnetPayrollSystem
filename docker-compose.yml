@@ -1,0 +1,60 @@
+services:
+
+  # ─── PostgreSQL ───────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: payroll_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: payrolldb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── .NET Backend ─────────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./PayrollSystem
+      dockerfile: Dockerfile
+    container_name: payroll_backend
+    restart: unless-stopped
+    ports:
+      - "5118:8080"                       # host:container
+    environment:
+      ASPNETCORE_URLS: "http://+:8080"
+      # Connection string points to the postgres service name, not localhost
+      ConnectionStrings__DefaultConnection: >-
+        Host=postgres;Port=5432;Database=payrolldb;
+        Username=postgres;Password=postgres;
+      # CORS: origins the browser calls the API from
+      ALLOWED_ORIGINS: "http://localhost:5173"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ─── React Frontend ───────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./PayrollSystemClient
+      dockerfile: Dockerfile
+      args:
+        # VITE_API_URL is embedded at build time.
+        # This must be the URL the browser (not the container) can reach.
+        VITE_API_URL: "http://localhost:5118/api"
+    container_name: payroll_frontend
+    restart: unless-stopped
+    ports:
+      - "5173:8080"                       # host:container
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
